@@ -99,11 +99,21 @@ Each user will have public profiles with library of their titles and each chapte
 
 **Functional Requirements**
 
-<!-- TODO: To be defined -->
+- Users can register/login via OAuth and maintain a single account across all 3 apps
+- Users can browse, search, read manga, read novels, and stream anime
+- Users can track reading/watching progress and maintain personal libraries
+- Users can post threaded comments on any content
+- Uploaders can upload new chapters/episodes to titles they are assigned to
+- Admins can manage users, roles, and content
+- System sends notifications for new releases and comment replies
 
 **Non-Functional Requirements**
 
-<!-- TODO: To be defined (scalability, performance, availability, security, observability) -->
+- **Scalability**: Handle 10K+ concurrent readers, horizontal scaling for services
+- **Performance**: Page loads <2s, media served via CDN, search results <500ms
+- **Availability**: 99.9% uptime target, graceful degradation if services fail
+- **Security**: JWT auth, role-based access, input validation, rate limiting
+- **Observability**: Structured logging, request tracing, health checks per service
 
 ---
 
@@ -141,7 +151,9 @@ Add to MVP:
 
 **Justification:**
 
-<!-- TODO: Explain why microservices over monolith, why container-based vs serverless, etc. -->
+- **Microservices over Monolith**: Each domain (Auth, Content, Media, etc.) has different scaling needs. Media and Search need more resources than Auth.
+- **Container-based over Serverless**: Long-running connections for video streaming, predictable costs at scale, easier local development.
+- **Federated Frontend over Single SPA**: Each app (Manga/Novel/Anime) has distinct UI patterns (image reader vs text reader vs video player). Separate apps allow specialised optimisation while sharing auth.
 
 ### 2.3 Component Breakdown
 
@@ -157,7 +169,7 @@ Add to MVP:
 - **Media Service**: File uploads, S3 management, CDN URL generation
 - **Social Service**: Tree-like comments, likes, follows
 - **Search Service**: Elasticsearch integration, cross-media search
-- **Notification Service**: Alert generation, fan-out, delivery
+- **Notification Service**: Alert generation, delivery
 
 **Data Stores:**
 - **PostgreSQL**: Primary database (Accounts DB, Content DB, Comments DB, Notifications DB)
@@ -177,11 +189,129 @@ Add to MVP:
 
 **Justification:**
 
-<!-- TODO: Why REST over GraphQL/gRPC, etc. -->
+- **REST**: Do not see any need to swap to different protocols, since this REST is popular and fits everything.
+- **Redis Queues for Async**: The same, it popular and familiar to everyone.
 
 ### 3.2 REST Endpoints
 
-<!-- TODO: 5-12 representative endpoints with request/response examples -->
+#### Auth Service
+
+**POST /auth/login**
+```json
+// Request
+{ "provider": "google", "token": "oauth_token_here" }
+
+// Response 200
+{ "jwt": "eyJ...", "user": { "id": "123", "username": "reader1", "role": "user" } }
+```
+
+**GET /auth/me**
+```json
+// Response 200 (with JWT in header)
+{ "id": "123", "username": "reader1", "role": "uploader", "permissions": ["title:456"] }
+```
+
+#### Content Service
+
+**GET /content/manga/:id**
+```json
+// Response 200
+{
+  "id": "456",
+  "title": "One Piece",
+  "type": "manga",
+  "chapters": [{ "id": "1", "number": 1, "status": "live", "name": "Hello" }],
+  "relatedMedia": [{ "type": "anime", "id": "789" }]
+}
+```
+
+**GET /content/manga/:id/chapters/:chapterId**
+```json
+// Response 200
+{
+  "id": "1",
+  "number": 1,
+  "pages": [
+    { "page": 1, "url": "https://cdn.example.com/manga/456/1/1.webp" }
+  ]
+}
+```
+
+**POST /content/manga/:id/chapters** (Uploader only)
+```json
+// Request (multipart/form-data)
+{ "number": 100, "file": "<zip file>" }
+
+// Response 202
+{ "chapterId": "999", "status": "processing" }
+```
+
+#### User Service
+
+**GET /users/:id/library**
+```json
+// Response 200
+{
+  "reading": [{ "contentId": "456", "type": "manga", "progress": { "chapter": 50, "page": 12 } }],
+  "completed": [],
+  "planToRead": []
+}
+```
+
+**PUT /users/:id/progress**
+```json
+// Request
+{ "contentId": "456", "type": "manga", "chapter": 51, "page": 1 }
+
+// Response 200
+{ "updated": true }
+```
+
+#### Social Service
+
+**GET /content/:id/comments**
+```json
+// Response 200
+{
+  "comments": [
+    { "id": "c1", "userId": "123", "text": "Great chapter!", "replies": [...], "createdAt": "..." }
+  ]
+}
+```
+
+**POST /content/:id/comments**
+```json
+// Request
+{ "text": "Amazing plot twist", "parentId": null }
+
+// Response 201
+{ "id": "c2", "text": "Amazing plot twist", "createdAt": "..." }
+```
+
+#### Search Service
+
+**GET /search?q=one+piece&type=manga**
+```json
+// Response 200
+{
+  "results": [
+    { "id": "456", "title": "One Piece", "type": "manga", "score": 0.95 }
+  ],
+  "total": 1
+}
+```
+
+#### Notification Service
+
+**GET /notifications**
+```json
+// Response 200
+{
+  "notifications": [
+    { "id": "n1", "type": "new_chapter", "contentId": "456", "message": "One Piece Ch. 100 is live", "read": false }
+  ]
+}
+```
 
 ### 3.3 Authentication & Authorization
 
@@ -206,17 +336,17 @@ Guest → User → Uploader → Moderator → Admin
 
 **Chosen Technologies:**
 - **PostgreSQL** (primary relational database)
-- **Redis** (cache/queue)
+- **Redis** (cache)
 - **S3-compatible** (media storage)
 - **Elasticsearch** (search)
 
 **Justification:**
 
-<!-- TODO: Why PostgreSQL over MySQL/MongoDB/DynamoDB, etc. -->
+- **PostgreSQL**: Popular, data is relational and has the same format.
 
 ### 4.2 Data Schema
 
-<!-- TODO: Simplified schema diagram with entities, relationships, and database boundaries -->
+![Database Schema](database-schema.png)
 
 ### 4.3 Data Access & Patterns
 
